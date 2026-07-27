@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Co-op LAN Test - Zero Latency</title>
+    <title>Co-op 1 Mã Duy Nhất - Zero Latency</title>
+    <!-- Import PeerJS từ CDN -->
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <style>
         :root {
             --bg-color: #0f172a;
@@ -22,7 +24,7 @@
             flex-direction: column;
             align-items: center;
         }
-        h1 { margin-bottom: 10px; font-size: 1.4rem; text-align: center; }
+        h1 { margin-bottom: 10px; font-size: 1.3rem; text-align: center; }
         .container { width: 100%; max-width: 800px; display: flex; flex-direction: column; gap: 15px; }
         .panel { background-color: var(--card-bg); padding: 15px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
         input, button { width: 100%; padding: 10px; margin-top: 5px; margin-bottom: 10px; background: #0f172a; border: 1px solid #475569; color: #fff; border-radius: 6px; box-sizing: border-box; }
@@ -56,7 +58,7 @@
         .control-area { display: flex; justify-content: space-between; align-items: center; gap: 15px; }
         #joystick-pad {
             width: 110px; height: 110px; background: #0f172a; border: 2px solid #475569; border-radius: 50%;
-            position: relative; touch-action: none; display: flex; align-items: center; justifyContent: center;
+            position: relative; touch-action: none; display: flex; align-items: center; justify-content: center;
         }
         #joystick-knob { width: 45px; height: 45px; background: #3b82f6; border-radius: 50%; position: absolute; }
         
@@ -70,28 +72,19 @@
 <body>
 
 <div class="container">
-    <h1>Test Co-op Nhanh (P2P LAN)</h1>
+    <h1>Test Co-op 1 Mã Duy Nhất (P2P)</h1>
 
     <!-- Setup Panel -->
     <div class="panel" id="setup-panel">
-        <h3>Thiết lập kết nối nhanh</h3>
+        <h3>Chỉ cần nhập chung 1 Mã Phòng</h3>
         <label>Tên của bạn:</label>
         <input type="text" id="username" value="Npc_Player">
 
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-            <div>
-                <h4>Bước 1: Máy Tạo Phòng (Host)</h4>
-                <button onclick="hostCreateRoom()">Tạo Phòng Ngay</button>
-                <input type="text" id="my-room-code" placeholder="Mã phòng tự hiện..." readonly>
-            </div>
-            <div>
-                <h4>Bước 2: Máy Vào Phòng (Client)</h4>
-                <label>Nhập mã phòng từ Host:</label>
-                <input type="text" id="target-room-code" placeholder="Dán mã phòng vào đây...">
-                <button onclick="clientJoinRoom()">Vào Phòng</button>
-            </div>
-        </div>
-        <div id="status" style="margin-top: 8px; font-weight: bold; color: #f59e0b;">Trạng thái: Sẵn sàng</div>
+        <label>Nhập Mã Phòng (VD: phong123 - cả 2 máy gõ giống nhau):</label>
+        <input type="text" id="room-code" placeholder="Nhập tên phòng bất kỳ...">
+        <button onclick="joinOrcreateRoom()">Vào/Tạo Phòng</button>
+
+        <div id="status" style="margin-top: 8px; font-weight: bold; color: #f59e0b;">Trạng thái: Sẵn sàng kết nối</div>
     </div>
 
     <!-- Game Screen -->
@@ -125,91 +118,67 @@
 </div>
 
 <script>
-    let pc, dataChannel;
-    let isHost = false;
+    let peer, conn;
     let myRole = '';
     let myPos = { x: 20, y: 20 };
     let otherPos = { x: 280, y: 280 };
 
-    const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
-
-    function createPeer() {
-        pc = new RTCPeerConnection(rtcConfig);
-    }
-
-    // Tự động thu gọn mã SDP thành dạng JSON mã hóa ngắn gọn bằng btoa
-    async function hostCreateRoom() {
-        isHost = true;
-        myRole = 'p1';
-        createPeer();
-
-        dataChannel = pc.createDataChannel("game");
-        setupDataChannel();
-
-        pc.onicecandidate = e => {
-            if (e.candidate === null) {
-                const code = btoa(JSON.stringify(pc.localDescription));
-                document.getElementById('my-room-code').value = code;
-                document.getElementById('status').innerText = "Trạng thái: Đã tạo mã phòng! Hãy gửi mã này cho máy kia.";
-            }
-        };
-
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-    }
-
-    async function clientJoinRoom() {
-        isHost = false;
-        myRole = 'p2';
-        createPeer();
-
-        pc.ondatachannel = e => {
-            dataChannel = e.channel;
-            setupDataChannel();
-        };
-
-        const codeInput = document.getElementById('target-room-code').value.trim();
-        if (!codeInput) {
+    function joinOrcreateRoom() {
+        const code = document.getElementById('room-code').value.trim();
+        if (!code) {
             alert("Vui lòng nhập mã phòng!");
             return;
         }
+        document.getElementById('status').innerText = "Trạng thái: Đang kết nối vào phòng...";
 
-        const offer = JSON.parse(atob(codeInput));
-        await pc.setRemoteDescription(offer);
+        // Thử tạo peer với ID do người dùng đặt (Máy thứ nhất vào sẽ giữ ID này làm Host)
+        peer = new Peer('npc-coop-' + code);
 
-        pc.onicecandidate = async e => {
-            if (e.candidate === null) {
-                const answerCode = btoa(JSON.stringify(pc.localDescription));
-                // Tự động copy ngược lại hoặc hiển thị để Host nhập
-                document.getElementById('target-room-code').value = answerCode;
-                document.getElementById('target-room-code').placeholder = "Sao chép mã này gửi lại cho Host!";
-                document.getElementById('status').innerText = "Trạng thái: Đã tạo Answer, hãy đưa mã này cho Host xác nhận bước cuối!";
+        peer.on('open', (id) => {
+            myRole = 'p1'; // Nếu tạo thành công ID này trước -> là Host (P1)
+            document.getElementById('status').innerText = "Trạng thái: Đã tạo phòng thành công! Đang chờ người thứ 2 vào...";
+        });
+
+        peer.on('error', (err) => {
+            if (err.type === 'unavailable-id') {
+                // Nếu ID đã tồn tại (do máy 1 tạo rồi) -> Máy này vào vai trò Client (P2) kết nối tới Host
+                myRole = 'p2';
+                myPos = { x: 280, y: 280 };
+                otherPos = { x: 20, y: 20 };
+                
+                peer = new Peer(); // Tạo peer ngẫu nhiên cho client
+                peer.on('open', () => {
+                    conn = peer.connect('npc-coop-' + code);
+                    setupConnection();
+                });
+            } else {
+                document.getElementById('status').innerText = "Lỗi: " + err.type;
             }
-        };
+        });
 
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
+        // Lắng nghe nếu có Client kết nối tới (Dành cho Host)
+        peer.on('connection', (connection) => {
+            conn = connection;
+            setupConnection();
+        });
     }
 
-    // Hỗ trợ nếu Host cần nhận mã phản hồi từ Client
-    // (Ta bổ sung nhanh ô nhập Answer ẩn nếu cần, hoặc dùng chung cơ chế tự động)
-    function setupDataChannel() {
-        dataChannel.onopen = () => {
+    function setupConnection() {
+        conn.on('open', () => {
             document.getElementById('setup-panel').style.display = 'none';
             document.getElementById('game-container').style.display = 'block';
-            if (myRole === 'p2') { myPos = { x: 280, y: 280 }; otherPos = { x: 20, y: 20 }; }
             requestAnimationFrame(gameLoop);
-        };
-        dataChannel.onmessage = e => {
-            const data = JSON.parse(e.data);
+        });
+
+        conn.on('data', (data) => {
             if (data.t === 'pos') otherPos = data.p;
             if (data.t === 'chat') addChat(data.s, data.m);
-        };
+        });
     }
 
     function gameLoop() {
-        if (dataChannel && dataChannel.readyState === 'open') {
-            dataChannel.send(JSON.stringify({ t: 'pos', p: myPos }));
+        if (conn && conn.open) {
+            conn.send({ t: 'pos', p: myPos });
         }
 
         document.getElementById('p1').style.left = (myRole === 'p1' ? myPos.x : otherPos.x) + 'px';
@@ -241,7 +210,7 @@
         let name = document.getElementById('username').value || 'User';
         if (!msg) return;
         addChat(name, msg);
-        if (dataChannel && dataChannel.readyState === 'open') dataChannel.send(JSON.stringify({ t: 'chat', s: name, m: msg }));
+        if (conn && conn.open) conn.send({ t: 'chat', s: name, m: msg });
         input.value = '';
     }
     function addChat(s, m) {
@@ -252,4 +221,3 @@
 </script>
 </body>
 </html>
-
