@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Co-op 1 Mã Duy Nhất - Zero Latency</title>
-    <!-- Import PeerJS từ CDN -->
+    <title>Co-op 2 Chiều - Joystick Cả 2 Bên</title>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <style>
         :root {
@@ -50,9 +49,10 @@
             justify-content: center;
             font-weight: bold;
             font-size: 12px;
+            transition: transform 0.05s linear;
         }
-        #p1 { background-color: var(--accent-p1); top: 20px; left: 20px; }
-        #p2 { background-color: var(--accent-p2); bottom: 20px; right: 20px; }
+        #p1 { background-color: var(--accent-p1); }
+        #p2 { background-color: var(--accent-p2); }
 
         .hud { display: flex; justify-content: space-between; font-size: 0.85rem; color: #94a3b8; margin-bottom: 5px; }
         .control-area { display: flex; justify-content: space-between; align-items: center; gap: 15px; }
@@ -72,26 +72,24 @@
 <body>
 
 <div class="container">
-    <h1>Test Co-op 1 Mã Duy Nhất (P2P)</h1>
+    <h1>Co-op P2P - Joystick Cả 2 Bên</h1>
 
-    <!-- Setup Panel -->
     <div class="panel" id="setup-panel">
-        <h3>Chỉ cần nhập chung 1 Mã Phòng</h3>
+        <h3>Nhập chung 1 Mã Phòng để chơi</h3>
         <label>Tên của bạn:</label>
         <input type="text" id="username" value="Npc_Player">
 
-        <label>Nhập Mã Phòng (VD: phong123 - cả 2 máy gõ giống nhau):</label>
-        <input type="text" id="room-code" placeholder="Nhập tên phòng bất kỳ...">
-        <button onclick="joinOrcreateRoom()">Vào/Tạo Phòng</button>
+        <label>Mã phòng (VD: game123):</label>
+        <input type="text" id="room-code" placeholder="Nhập mã phòng...">
+        <button onclick="joinOrcreateRoom()">Vào Phòng</button>
 
-        <div id="status" style="margin-top: 8px; font-weight: bold; color: #f59e0b;">Trạng thái: Sẵn sàng kết nối</div>
+        <div id="status" style="margin-top: 8px; font-weight: bold; color: #f59e0b;">Trạng thái: Sẵn sàng</div>
     </div>
 
-    <!-- Game Screen -->
     <div class="panel" id="game-container" style="display:none;">
         <div class="hud">
             <span id="fps">FPS: 60</span>
-            <span>Kết nối: P2P Trực tiếp (0ms trễ)</span>
+            <span id="role-display">Vai trò: --</span>
         </div>
         
         <div id="game-screen">
@@ -101,7 +99,7 @@
 
         <div class="control-area" style="margin-top: 10px;">
             <div>
-                <p style="margin: 0 0 5px 0; font-size: 0.8rem;">Joystick:</p>
+                <p style="margin: 0 0 5px 0; font-size: 0.8rem;">Joystick của bạn:</p>
                 <div id="joystick-pad"><div id="joystick-knob"></div></div>
             </div>
             
@@ -119,44 +117,39 @@
 
 <script>
     let peer, conn;
-    let myRole = '';
-    let myPos = { x: 20, y: 20 };
-    let otherPos = { x: 280, y: 280 };
+    let myRole = ''; // 'p1' hoặc 'p2'
+    
+    // Tọa độ riêng cho 2 bên
+    let p1Pos = { x: 20, y: 20 };
+    let p2Pos = { x: 280, y: 280 };
+    
+    let moveVector = { x: 0, y: 0 };
 
     function joinOrcreateRoom() {
         const code = document.getElementById('room-code').value.trim();
-        if (!code) {
-            alert("Vui lòng nhập mã phòng!");
-            return;
-        }
-        document.getElementById('status').innerText = "Trạng thái: Đang kết nối vào phòng...";
+        if (!code) { alert("Vui lòng nhập mã phòng!"); return; }
+        document.getElementById('status').innerText = "Đang kết nối...";
 
-        // Thử tạo peer với ID do người dùng đặt (Máy thứ nhất vào sẽ giữ ID này làm Host)
         peer = new Peer('npc-coop-' + code);
 
-        peer.on('open', (id) => {
-            myRole = 'p1'; // Nếu tạo thành công ID này trước -> là Host (P1)
-            document.getElementById('status').innerText = "Trạng thái: Đã tạo phòng thành công! Đang chờ người thứ 2 vào...";
+        peer.on('open', () => {
+            myRole = 'p1'; // Máy tạo phòng trước là P1
+            document.getElementById('role-display').innerText = "Vai trò: P1 (Xanh dương)";
+            document.getElementById('status').innerText = "Đã tạo phòng, đang đợi người thứ 2...";
         });
 
         peer.on('error', (err) => {
             if (err.type === 'unavailable-id') {
-                // Nếu ID đã tồn tại (do máy 1 tạo rồi) -> Máy này vào vai trò Client (P2) kết nối tới Host
-                myRole = 'p2';
-                myPos = { x: 280, y: 280 };
-                otherPos = { x: 20, y: 20 };
-                
-                peer = new Peer(); // Tạo peer ngẫu nhiên cho client
+                myRole = 'p2'; // Máy vào sau là P2
+                document.getElementById('role-display').innerText = "Vai trò: P2 (Đỏ)";
+                peer = new Peer();
                 peer.on('open', () => {
                     conn = peer.connect('npc-coop-' + code);
                     setupConnection();
                 });
-            } else {
-                document.getElementById('status').innerText = "Lỗi: " + err.type;
             }
         });
 
-        // Lắng nghe nếu có Client kết nối tới (Dành cho Host)
         peer.on('connection', (connection) => {
             conn = connection;
             setupConnection();
@@ -171,40 +164,74 @@
         });
 
         conn.on('data', (data) => {
-            if (data.t === 'pos') otherPos = data.p;
-            if (data.t === 'chat') addChat(data.s, data.m);
+            if (data.t === 'pos') {
+                // Nhận tọa độ của người kia đồng bộ về máy mình
+                if (myRole === 'p1') p2Pos = data.p;
+                else p1Pos = data.p;
+            } else if (data.t === 'chat') {
+                addChat(data.s, data.m);
+            }
         });
     }
 
     function gameLoop() {
-        if (conn && conn.open) {
-            conn.send({ t: 'pos', p: myPos });
+        // Cập nhật vị trí nhân vật của chính mình dựa trên Joystick đang kéo
+        let myCurrentPos = (myRole === 'p1') ? p1Pos : p2Pos;
+        
+        if (moveVector.x !== 0 || moveVector.y !== 0) {
+            myCurrentPos.x += moveVector.x * 4;
+            myCurrentPos.y += moveVector.y * 4;
+            // Giới hạn trong khung game (rộng 350, trừ đi kích thước box 50px = 300)
+            myCurrentPos.x = Math.max(0, Math.min(300, myCurrentPos.x));
+            myCurrentPos.y = Math.max(0, Math.min(300, myCurrentPos.y));
+
+            // Gửi tọa độ của mình cho máy bên kia ngay lập tức (P2P zero-latency)
+            if (conn && conn.open) {
+                conn.send({ t: 'pos', p: myCurrentPos });
+            }
         }
 
-        document.getElementById('p1').style.left = (myRole === 'p1' ? myPos.x : otherPos.x) + 'px';
-        document.getElementById('p1').style.top = (myRole === 'p1' ? myPos.y : otherPos.y) + 'px';
-        document.getElementById('p2').style.left = (myRole === 'p2' ? myPos.x : otherPos.x) + 'px';
-        document.getElementById('p2').style.top = (myRole === 'p2' ? myPos.y : otherPos.y) + 'px';
+        // Render vị trí cả 2 lên màn hình
+        document.getElementById('p1').style.left = p1Pos.x + 'px';
+        document.getElementById('p1').style.top = p1Pos.y + 'px';
+        document.getElementById('p2').style.left = p2Pos.x + 'px';
+        document.getElementById('p2').style.top = p2Pos.y + 'px';
 
         requestAnimationFrame(gameLoop);
     }
 
-    // Joystick
+    // Xử lý Joystick đa hướng mượt mà cho từng máy
     let dragging = false, pad = document.getElementById('joystick-pad'), knob = document.getElementById('joystick-knob');
-    pad.addEventListener('pointerdown', () => dragging = true);
+    
+    pad.addEventListener('pointerdown', e => { dragging = true; });
+    
     window.addEventListener('pointermove', e => {
         if (!dragging) return;
         let rect = pad.getBoundingClientRect();
-        let x = e.clientX - rect.left - 55, y = e.clientY - rect.top - 55;
+        let x = e.clientX - rect.left - 55;
+        let y = e.clientY - rect.top - 55;
         let dist = Math.hypot(x, y), angle = Math.atan2(y, x), maxR = 35;
-        if (dist > maxR) { x = Math.cos(angle) * maxR; y = Math.sin(angle) * maxR; }
+        
+        if (dist > maxR) { 
+            x = Math.cos(angle) * maxR; 
+            y = Math.sin(angle) * maxR; 
+        }
+        
         knob.style.transform = `translate(${x}px, ${y}px)`;
-        myPos.x += (x / maxR) * 4; myPos.y += (y / maxR) * 4;
-        myPos.x = Math.max(0, Math.min(300, myPos.x));
-        myPos.y = Math.max(0, Math.min(300, myPos.y));
+        
+        // Tính vector hướng di chuyển chuẩn hóa (-1 đến 1)
+        moveVector.x = x / maxR;
+        moveVector.y = y / maxR;
     });
-    window.addEventListener('pointerup', () => { dragging = false; knob.style.transform = `translate(0px, 0px)`; });
 
+    window.addEventListener('pointerup', () => {
+        dragging = false;
+        knob.style.transform = `translate(0px, 0px)`;
+        moveVector.x = 0;
+        moveVector.y = 0;
+    });
+
+    // Chat hệ thống
     function sendChat() {
         let input = document.getElementById('chat-input'), msg = input.value.trim();
         let name = document.getElementById('username').value || 'User';
