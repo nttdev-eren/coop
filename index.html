@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC P2P Co-op Test (Zero Latency)</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-color: #f8fafc;
+            --accent-p1: #3b82f6;
+            --accent-p2: #ef4444;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 { margin-bottom: 10px; font-size: 1.5rem; text-align: center; }
+        .container {
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .panel {
+            background-color: var(--card-bg);
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .connection-box {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+        @media(max-width: 600px) {
+            .connection-box { grid-template-columns: 1fr; }
+        }
+        input, textarea, button {
+            width: 100%;
+            padding: 10px;
+            margin-top: 5px;
+            margin-bottom: 10px;
+            background: #0f172a;
+            border: 1px solid #475569;
+            color: #fff;
+            border-radius: 6px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #2563eb;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+        button:hover { background-color: #1d4ed8; }
+        
+        /* Game Screen */
+        #game-screen {
+            display: none;
+            position: relative;
+            height: 400px;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 2px solid #475569;
+        }
+        .player-box {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        #p1 { background-color: var(--accent-p1); top: 20px; left: 20px; }
+        #p2 { background-color: var(--accent-p2); bottom: 20px; right: 20px; }
+
+        /* HUD & Stats */
+        .hud {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9rem;
+            color: #94a3b8;
+            margin-bottom: 5px;
+        }
+
+        /* Joystick & Controls */
+        .control-area {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 20px;
+        }
+        #joystick-pad {
+            width: 120px;
+            height: 120px;
+            background: #0f172a;
+            border: 2px solid #475569;
+            border-radius: 50%;
+            position: relative;
+            touch-action: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #joystick-knob {
+            width: 50px;
+            height: 50px;
+            background: #3b82f6;
+            border-radius: 50%;
+            position: absolute;
+            cursor: pointer;
+        }
+
+        /* Chat box */
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: 150px;
+        }
+        #chat-messages {
+            flex: 1;
+            background: #0f172a;
+            border: 1px solid #475569;
+            border-radius: 6px;
+            padding: 8px;
+            overflow-y: auto;
+            font-size: 0.85rem;
+            margin-bottom: 8px;
+        }
+        .chat-input-row {
+            display: flex;
+            gap: 8px;
+        }
+        .chat-input-row input { margin: 0; }
+        .chat-input-row button { width: 80px; margin: 0; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>WebRTC P2P Zero-Latency Test</h1>
+
+    <!-- Setup Panel -->
+    <div class="panel" id="setup-panel">
+        <h3>1. Thiết lập kết nối</h3>
+        <label>Tên của bạn:</label>
+        <input type="text" id="username" value="Player_1">
+
+        <div class="connection-box">
+            <div>
+                <h4>Máy Chủ (Host):</h4>
+                <button onclick="createRoom()">Tạo Phòng (Tạo Offer)</button>
+                <textarea id="offer-box" placeholder="Mã Offer xuất hiện ở đây..." readonly></textarea>
+                <label>Dán Answer từ Khách vào đây:</label>
+                <textarea id="answer-input" placeholder="Dán Answer của Khách..."></textarea>
+                <button onclick="connectHost()">Kết Nối (Nhận Answer)</button>
+            </div>
+            <div>
+                <h4>Máy Khách (Client):</h4>
+                <label>Dán Offer từ Host vào đây:</label>
+                <textarea id="offer-input" placeholder="Dán Offer của Host..."></textarea>
+                <button onclick="connectClient()">Tham Gia (Tạo Answer)</button>
+                <textarea id="answer-box" placeholder="Mã Answer xuất hiện ở đây..." readonly></textarea>
+            </div>
+        </div>
+        <div id="connection-status" style="margin-top: 10px; font-weight: bold; color: #f59e0b;">Trạng thái: Chưa kết nối</div>
+    </div>
+
+    <!-- Game Screen & HUD -->
+    <div class="panel" id="game-container" style="display:none;">
+        <div class="hud">
+            <span id="fps-counter">FPS: 60</span>
+            <span id="ping-status">Độ trễ: P2P Direct (0ms server)</span>
+        </div>
+        
+        <div id="game-screen">
+            <div id="p1" class="player-box">P1</div>
+            <div id="p2" class="player-box">P2</div>
+        </div>
+
+        <div class="control-area" style="margin-top: 15px;">
+            <div>
+                <p style="margin: 0 0 5px 0; font-size: 0.85rem;">Joystick (Di chuyển khối của bạn):</p>
+                <div id="joystick-pad">
+                    <div id="joystick-knob"></div>
+                </div>
+            </div>
+            
+            <div style="flex: 1; display: flex; flex-direction: column;">
+                <p style="margin: 0 0 5px 0; font-size: 0.85rem;">Khung Chat P2P:</p>
+                <div class="chat-container">
+                    <div id="chat-messages"></div>
+                    <div class="chat-input-row">
+                        <input type="text" id="chat-input" placeholder="Nhập tin nhắn..." onkeydown="if(event.key==='Enter') sendChat()">
+                        <button onclick="sendChat()">Gửi</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let pc;
+    let dataChannel;
+    let isHost = false;
+    let myRole = ''; // 'p1' or 'p2'
+    
+    // Game state variables
+    let myPos = { x: 20, y: 20 };
+    let otherPos = { x: 320, y: 320 };
+    let lastFrameTime = performance.now();
+    let frameCount = 0;
+    let fps = 60;
+
+    const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+    function initPeerConnection() {
+        pc = new RTCPeerConnection(configuration);
+        
+        pc.onicecandidate = event => {
+            if (event.candidate === null) {
+                if (isHost) {
+                    document.getElementById('offer-box').value = JSON.stringify(pc.localDescription);
+                } else {
+                    document.getElementById('answer-box').value = JSON.stringify(pc.localDescription);
+                }
+            }
+        };
+    }
+
+    async function createRoom() {
+        isHost = true;
+        myRole = 'p1';
+        initPeerConnection();
+        
+        dataChannel = pc.createDataChannel("gameData");
+        setupDataChannel();
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        document.getElementById('connection-status').innerText = "Trạng thái: Đang tạo Offer...";
+    }
+
+    async function connectClient() {
+        isHost = false;
+        myRole = 'p2';
+        initPeerConnection();
+
+        pc.ondatachannel = event => {
+            dataChannel = event.channel;
+            setupDataChannel();
+        };
+
+        const offerStr = document.getElementById('offer-input').value;
+        const offer = JSON.parse(offerStr);
+        await pc.setRemoteDescription(offer);
+
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        document.getElementById('connection-status').innerText = "Trạng thái: Đã tạo Answer, hãy gửi lại cho Host.";
+    }
+
+    async function connectHost() {
+        const answerStr = document.getElementById('answer-input').value;
+        const answer = JSON.parse(answerStr);
+        await pc.setRemoteDescription(answer);
+        document.getElementById('connection-status').innerText = "Trạng thái: Đang thiết lập kết nối P2P...";
+    }
+
+    function setupDataChannel() {
+        dataChannel.onopen = () => {
+            document.getElementById('connection-status').innerText = "Trạng thái: Đã kết nối thành công!";
+            document.getElementById('setup-panel').style.display = 'none';
+            document.getElementById('game-container').style.display = 'block';
+            
+            // Hoán đổi vị trí ban đầu nếu là P2
+            if (myRole === 'p2') {
+                myPos = { x: 320, y: 320 };
+                otherPos = { x: 20, y: 20 };
+            }
+            startGameLoop();
+        };
+
+        dataChannel.onmessage = event => {
+            const data = JSON.parse(event.data);
+            if (data.type === 'pos') {
+                otherPos = data.pos;
+            } else if (data.type === 'chat') {
+                appendChat(data.sender, data.message);
+            }
+        };
+    }
+
+    // Game & Render Loop
+    function startGameLoop() {
+        requestAnimationFrame(updateLoop);
+    }
+
+    function updateLoop(now) {
+        // Tính FPS
+        frameCount++;
+        if (now - lastFrameTime >= 1000) {
+            fps = frameCount;
+            frameCount = 0;
+            lastFrameTime = now;
+            document.getElementById('fps-counter').innerText = `FPS: ${fps}`;
+        }
+
+        // Gửi vị trí qua WebRTC DataChannel (Độ trễ gần như 0 vì là P2P trực tiếp)
+        if (dataChannel && dataChannel.readyState === 'open') {
+            dataChannel.send(JSON.stringify({ type: 'pos', pos: myPos }));
+        }
+
+        // Render vị trí lên màn hình
+        const p1Elem = document.getElementById('p1');
+        const p2Elem = document.getElementById('p2');
+
+        if (myRole === 'p1') {
+            p1Elem.style.left = myPos.x + 'px';
+            p1Elem.style.top = myPos.y + 'px';
+            p2Elem.style.left = otherPos.x + 'px';
+            p2Elem.style.top = otherPos.y + 'px';
+        } else {
+            p2Elem.style.left = myPos.x + 'px';
+            p2Elem.style.top = myPos.y + 'px';
+            p1Elem.style.left = otherPos.x + 'px';
+            p1Elem.style.top = otherPos.y + 'px';
+        }
+
+        requestAnimationFrame(updateLoop);
+    }
+
+    // Joystick Control Logic
+    const pad = document.getElementById('joystick-pad');
+    const knob = document.getElementById('joystick-knob');
+    let isDragging = false;
+    let center = { x: 60, y: 60 };
+    let maxRadius = 40;
+
+    pad.addEventListener('pointerdown', (e) => {
+        isDragging = true;
+    });
+
+    window.addEventListener('pointermove', (e) => {
+        if (!isDragging) return;
+        const rect = pad.getBoundingClientRect();
+        const x = e.clientX - rect.left - center.x;
+        const y = e.clientY - rect.top - center.y;
+        
+        const distance = Math.hypot(x, y);
+        const angle = Math.atan2(y, x);
+
+        let limitedX = x;
+        let limitedY = y;
+
+        if (distance > maxRadius) {
+            limitedX = Math.cos(angle) * maxRadius;
+            limitedY = Math.sin(angle) * maxRadius;
+        }
+
+        knob.style.transform = `translate(${limitedX}px, ${limitedY}px)`;
+
+        // Cập nhật vị trí nhân vật dựa trên joystick
+        let speed = 4;
+        myPos.x += (limitedX / maxRadius) * speed;
+        myPos.y += (limitedY / maxRadius) * speed;
+
+        // Giới hạn trong khung game (340x340 vì block rộng 60px trong khung 400px)
+        myPos.x = Math.max(0, Math.min(340, myPos.x));
+        myPos.y = Math.max(0, Math.min(340, myPos.y));
+    });
+
+    window.addEventListener('pointerup', () => {
+        if (!isDragging) return;
+        isDragging = false;
+        knob.style.transform = `translate(0px, 0px)`;
+    });
+
+    // Chat System
+    function sendChat() {
+        const input = document.getElementById('chat-input');
+        const msg = input.value.trim();
+        const name = document.getElementById('username').value || 'Anonymous';
+        if (!msg) return;
+
+        appendChat(name, msg);
+        if (dataChannel && dataChannel.readyState === 'open') {
+            dataChannel.send(JSON.stringify({ type: 'chat', sender: name, message: msg }));
+        }
+        input.value = '';
+    }
+
+    function appendChat(sender, message) {
+        const box = document.getElementById('chat-messages');
+        box.innerHTML += `<div><b>${sender}:</b> ${message}</div>`;
+        box.scrollTop = box.scrollHeight;
+    }
+</script>
+
+</body>
+</html>
